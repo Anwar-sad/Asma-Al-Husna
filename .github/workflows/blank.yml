@@ -3,15 +3,34 @@ name: Build Android APK
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Find Android project
+        id: source
+        shell: bash
+        run: |
+          if [[ -f settings.gradle && -f app/build.gradle ]]; then
+            project="$PWD"
+          elif [[ -f asma-widget/settings.gradle && -f asma-widget/app/build.gradle ]]; then
+            project="$PWD/asma-widget"
+          elif [[ -f asma-widget-source.zip ]]; then
+            dest="$(mktemp -d)"
+            unzip -q asma-widget-source.zip -d "$dest"
+            project="$dest/asma-widget"
+          else
+            echo "::error::Upload asma-widget-source.zip to the root of the main branch."
+            exit 1
+          fi
+          if [[ ! -f "$project/settings.gradle" || ! -f "$project/app/build.gradle" ]]; then
+            echo "::error::The ZIP does not contain the expected asma-widget Android project."
+            exit 1
+          fi
+          printf 'project=%s\n' "$project" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -20,18 +39,12 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Build APK
+        env:
+          PROJECT_DIR: ${{ steps.source.outputs.project }}
         run: |
-          if [ -f settings.gradle ] && [ -d app ]; then
-            project=.
-          elif [ -f asma-widget/settings.gradle ] && [ -d asma-widget/app ]; then
-            project=asma-widget
-          else
-            echo 'Extract and upload the project source before running this workflow.'
-            exit 1
-          fi
           sdkmanager 'platforms;android-35' 'build-tools;34.0.0'
-          gradle -p "$project" :app:assembleDebug
-          cp "$project/app/build/outputs/apk/debug/app-debug.apk" Asma-Al-Husna.apk
+          gradle -p "$PROJECT_DIR" :app:assembleDebug
+          cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" Asma-Al-Husna.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Asma-APK
